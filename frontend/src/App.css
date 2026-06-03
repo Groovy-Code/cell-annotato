@@ -1,0 +1,39 @@
+.app {
+  max-width: 600px;
+  margin: 80px auto;
+  text-align: center;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.subtitle {
+  color: #666;
+  margin-bottom: 32px;
+}
+
+.card {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.card button {
+  padding: 10px 24px;
+  font-size: 15px;
+  border: none;
+  border-radius: 8px;
+  background: #1a73e8;
+  color: white;
+  cursor: pointer;
+}
+
+.card button:hover {
+  background: #1557b0;
+}
+
+.status {
+  margin-top: 16px;
+  font-size: 14px;
+  color: #333;
+  min-height: 20px;
+}
