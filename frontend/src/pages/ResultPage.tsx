@@ -4,24 +4,15 @@ import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
 import { fetchCells, type Cell, type CellType } from "../api";
 
-// 10 种细胞类型配色 — 基于 dataviz 参考调色板扩展
-// 前 8 色 = 参考调色板，后 2 色 = 手动扩展（保持 OKLCH L≈0.43–0.77, C≥0.1）
-const CATEGORY_COLORS: Record<string, string> = {
-  Hepatocytes: "#2a78d6",
-  Monocytes: "#eb6834",
-  "Stromal cells": "#1baf7a",
-  "B cells/B": "#4a3aa7",
-  "Endothelial cells": "#e34948",
-  "T cells/T": "#eda100",
-  "Kupffer cells/KCs": "#e87ba4",
-  "Fibroblasts/Myofibroblasts": "#008300",
-  "cDC1s/cDC2s": "#7b60b5",
-  Cholangiocytes: "#d46090",
-};
-
-function getColor(label: string): string {
-  return CATEGORY_COLORS[label] ?? "#a0a0a0";
-}
+// 动态调色板 — 20 色，基于 dataviz 参考调色板扩展
+// 前 8 = 参考调色板，后 12 = 手动扩展
+const PALETTE = [
+  "#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7",
+  "#e34948", "#eda100", "#e87ba4", "#008300",
+  "#7b60b5", "#d46090", "#3d8b7a", "#c4714a",
+  "#5994c4", "#b38b5f", "#6a9336", "#3d7a9b",
+  "#cf8a4b", "#27a398", "#a359b0", "#d97745",
+];
 
 export default function ResultPage() {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +25,7 @@ export default function ResultPage() {
   const [cellTypes, setCellTypes] = useState<CellType[]>([]);
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [groupedCells, setGroupedCells] = useState<Record<string, Cell[]>>({});
+  const [colorMap, setColorMap] = useState<Record<string, string>>({});
 
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
@@ -45,24 +37,31 @@ export default function ResultPage() {
         setName(data.name);
         setCellCount(data.cell_count);
 
-        // 按 label 分组（保留全部 10 种类型）
+        // 按 label 分组，动态分配颜色（按数量降序）
         const groups: Record<string, Cell[]> = {};
         for (const c of data.cells) {
-          const lbl = c.label in CATEGORY_COLORS ? c.label : "Other";
-          if (!groups[lbl]) groups[lbl] = [];
-          groups[lbl].push(c);
+          if (!groups[c.label]) groups[c.label] = [];
+          groups[c.label].push(c);
         }
+
+        const colorMap: Record<string, string> = {};
+        Object.entries(groups)
+          .sort((a, b) => b[1].length - a[1].length)
+          .forEach(([name], i) => {
+            colorMap[name] = PALETTE[i % PALETTE.length];
+          });
 
         const types: CellType[] = Object.entries(groups)
           .map(([name, cells]) => ({
             name,
             count: cells.length,
-            color: CATEGORY_COLORS[name] ?? CATEGORY_COLORS["Other"],
+            color: colorMap[name],
           }))
           .sort((a, b) => b.count - a.count);
 
         setCellTypes(types);
         setGroupedCells(groups);
+        setColorMap(colorMap);
         setLoading(false);
       })
       .catch((e) => {
@@ -89,7 +88,7 @@ export default function ResultPage() {
       ]),
       symbolSize: 3,
       itemStyle: {
-        color: getColor(label),
+        color: colorMap[label] ?? "#a0a0a0",
         opacity: 0.85,
       },
       emphasis: {
@@ -105,7 +104,7 @@ export default function ResultPage() {
     const legendData = Object.keys(groupedCells).map((name) => ({
       name,
       icon: "circle" as const,
-      itemStyle: { color: getColor(name) },
+      itemStyle: { color: colorMap[name] ?? "#a0a0a0" },
     }));
 
     return {
@@ -181,7 +180,7 @@ export default function ResultPage() {
       ],
       series,
     };
-  }, [groupedCells]);
+  }, [groupedCells, colorMap]);
 
   // ECharts 初始化
   useEffect(() => {

@@ -404,6 +404,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 .legend-list li {
