@@ -4,21 +4,23 @@ import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
 import { fetchCells, type Cell, type CellType } from "../api";
 
-// dataviz 方法验证通过的 8 色调色板（参考 palette.md）
+// 10 种细胞类型配色 — 基于 dataviz 参考调色板扩展
+// 前 8 色 = 参考调色板，后 2 色 = 手动扩展（保持 OKLCH L≈0.43–0.77, C≥0.1）
 const CATEGORY_COLORS: Record<string, string> = {
   Hepatocytes: "#2a78d6",
   Monocytes: "#eb6834",
   "Stromal cells": "#1baf7a",
-  "B cells": "#4a3aa7",
+  "B cells/B": "#4a3aa7",
   "Endothelial cells": "#e34948",
-  "T cells": "#eda100",
-  "Kupffer cells": "#e87ba4",
-  Other: "#a0a0a0",
+  "T cells/T": "#eda100",
+  "Kupffer cells/KCs": "#e87ba4",
+  "Fibroblasts/Myofibroblasts": "#008300",
+  "cDC1s/cDC2s": "#7b60b5",
+  Cholangiocytes: "#d46090",
 };
 
-function pickColor(label: string): string {
-  // 主类型直接命中；其余折叠为 Other
-  return CATEGORY_COLORS[label] ?? CATEGORY_COLORS["Other"];
+function getColor(label: string): string {
+  return CATEGORY_COLORS[label] ?? "#a0a0a0";
 }
 
 export default function ResultPage() {
@@ -43,14 +45,12 @@ export default function ResultPage() {
         setName(data.name);
         setCellCount(data.cell_count);
 
-        // 重新构建 cell_types：折叠稀有类型
+        // 按 label 分组（保留全部 10 种类型）
         const groups: Record<string, Cell[]> = {};
         for (const c of data.cells) {
-          const label = pickColor(c.label) === CATEGORY_COLORS["Other"]
-            ? "Other"
-            : c.label;
-          if (!groups[label]) groups[label] = [];
-          groups[label].push(c);
+          const lbl = c.label in CATEGORY_COLORS ? c.label : "Other";
+          if (!groups[lbl]) groups[lbl] = [];
+          groups[lbl].push(c);
         }
 
         const types: CellType[] = Object.entries(groups)
@@ -87,10 +87,10 @@ export default function ResultPage() {
         c.top2_prob,
         c.margin,
       ]),
-      symbolSize: label === "Other" ? 2 : 3,
+      symbolSize: 3,
       itemStyle: {
-        color: CATEGORY_COLORS[label] ?? CATEGORY_COLORS["Other"],
-        opacity: label === "Other" ? 0.5 : 0.85,
+        color: getColor(label),
+        opacity: 0.85,
       },
       emphasis: {
         itemStyle: {
@@ -102,8 +102,27 @@ export default function ResultPage() {
       },
     }));
 
+    const legendData = Object.keys(groupedCells).map((name) => ({
+      name,
+      icon: "circle" as const,
+      itemStyle: { color: getColor(name) },
+    }));
+
     return {
       backgroundColor: "#fcfcfb",
+      legend: {
+        data: legendData,
+        bottom: 44,
+        type: "scroll" as const,
+        textStyle: {
+          color: "#52514e",
+          fontSize: 11,
+          fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif",
+        },
+        itemWidth: 8,
+        itemHeight: 8,
+        itemGap: 16,
+      },
       tooltip: {
         trigger: "item" as const,
         backgroundColor: "#fff",
