@@ -112,7 +112,7 @@ export default function ResultPage() {
       backgroundColor: "#fcfcfb",
       legend: {
         data: legendData,
-        bottom: 44,
+        bottom: 8,
         type: "scroll" as const,
         textStyle: {
           color: "#52514e",
@@ -153,7 +153,7 @@ export default function ResultPage() {
             </table>`;
         },
       },
-      grid: { left: 8, right: 8, top: 8, bottom: 48 },
+      grid: { left: 8, right: 8, top: 8, bottom: 60 },
       xAxis: {
         type: "value" as const,
         show: false,
@@ -170,7 +170,7 @@ export default function ResultPage() {
         { type: "inside" as const },
         {
           type: "slider" as const,
-          bottom: 8,
+          bottom: 36,
           height: 20,
           borderColor: "transparent",
           backgroundColor: "rgba(11,11,11,0.04)",
