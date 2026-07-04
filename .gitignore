@@ -36,6 +36,12 @@ backend/.venv/
 .agents/
 skills-lock.json
 
+# Auth
+.git-credentials
+
+# Uploads
+backend/uploads/
+
 # Database
 *.db
 *.sqlite3
