@@ -1,4 +1,4 @@
-/* cell-annotato 全局样式重置 */
+/* cell-annotato — base reset (minimal) */
 *,
 *::before,
 *::after {
@@ -9,10 +9,10 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  color: #1a1a2e;
-  background: #f5f6fa;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  color: #0b0b0b;
+  background: #f9f9f7;
   min-height: 100vh;
 }
 

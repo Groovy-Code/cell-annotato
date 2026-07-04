@@ -4,6 +4,23 @@ import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
 import { fetchCells, type Cell, type CellType } from "../api";
 
+// dataviz 方法验证通过的 8 色调色板（参考 palette.md）
+const CATEGORY_COLORS: Record<string, string> = {
+  Hepatocytes: "#2a78d6",
+  Monocytes: "#eb6834",
+  "Stromal cells": "#1baf7a",
+  "B cells": "#4a3aa7",
+  "Endothelial cells": "#e34948",
+  "T cells": "#eda100",
+  "Kupffer cells": "#e87ba4",
+  Other: "#a0a0a0",
+};
+
+function pickColor(label: string): string {
+  // 主类型直接命中；其余折叠为 Other
+  return CATEGORY_COLORS[label] ?? CATEGORY_COLORS["Other"];
+}
+
 export default function ResultPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -25,14 +42,26 @@ export default function ResultPage() {
       .then((data) => {
         setName(data.name);
         setCellCount(data.cell_count);
-        setCellTypes(data.cell_types);
 
-        // 按 label 分组
+        // 重新构建 cell_types：折叠稀有类型
         const groups: Record<string, Cell[]> = {};
         for (const c of data.cells) {
-          if (!groups[c.label]) groups[c.label] = [];
-          groups[c.label].push(c);
+          const label = pickColor(c.label) === CATEGORY_COLORS["Other"]
+            ? "Other"
+            : c.label;
+          if (!groups[label]) groups[label] = [];
+          groups[label].push(c);
         }
+
+        const types: CellType[] = Object.entries(groups)
+          .map(([name, cells]) => ({
+            name,
+            count: cells.length,
+            color: CATEGORY_COLORS[name] ?? CATEGORY_COLORS["Other"],
+          }))
+          .sort((a, b) => b.count - a.count);
+
+        setCellTypes(types);
         setGroupedCells(groups);
         setLoading(false);
       })
@@ -42,66 +71,100 @@ export default function ResultPage() {
       });
   }, [id]);
 
-  // 颜色映射
-  const colorMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    cellTypes.forEach((t) => { map[t.name] = t.color; });
-    return map;
-  }, [cellTypes]);
-
-  // ECharts 配置
   const option: EChartsOption = useMemo(() => {
     if (Object.keys(groupedCells).length === 0) return {};
 
     const series = Object.entries(groupedCells).map(([label, cells]) => ({
       name: label,
       type: "scatter" as const,
-      data: cells.map((c) => [c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]),
-      symbolSize: 3,
-      itemStyle: { color: colorMap[label] || "#999" },
-      emphasis: { itemStyle: { borderColor: "#000", borderWidth: 1 } },
+      data: cells.map((c) => [
+        c.x,
+        c.y,
+        c.cell_id,
+        c.full_label,
+        c.prob,
+        c.top2_label,
+        c.top2_prob,
+        c.margin,
+      ]),
+      symbolSize: label === "Other" ? 2 : 3,
+      itemStyle: {
+        color: CATEGORY_COLORS[label] ?? CATEGORY_COLORS["Other"],
+        opacity: label === "Other" ? 0.5 : 0.85,
+      },
+      emphasis: {
+        itemStyle: {
+          borderColor: "#0b0b0b",
+          borderWidth: 1.5,
+          opacity: 1,
+        },
+        scale: 1.8,
+      },
     }));
 
     return {
+      backgroundColor: "#fcfcfb",
       tooltip: {
         trigger: "item" as const,
+        backgroundColor: "#fff",
+        borderColor: "rgba(11,11,11,0.10)",
+        borderWidth: 1,
+        padding: [12, 16],
+        textStyle: {
+          color: "#0b0b0b",
+          fontSize: 13,
+          fontFamily:
+            "system-ui, -apple-system, 'Segoe UI', sans-serif",
+        },
         formatter: (params: unknown) => {
-          const p = params as unknown as { data: number[]; seriesName: string };
+          const p = params as unknown as {
+            data: number[];
+            seriesName: string;
+            color: string;
+          };
           return `
-            <b>${p.seriesName}</b><br/>
-            细胞 ID: ${p.data[2]}<br/>
-            置信度: ${(p.data[4] as number * 100).toFixed(1)}%<br/>
-            Top2: ${p.data[5]} (${(p.data[6] as number * 100).toFixed(1)}%)
-          `.trim();
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.color}"></span>
+              <strong>${p.seriesName}</strong>
+            </div>
+            <table style="font-size:12px;line-height:1.8;color:#52514e">
+              <tr><td>Cell ID</td><td style="padding-left:16px;color:#0b0b0b;text-align:right">${p.data[2]}</td></tr>
+              <tr><td>Confidence</td><td style="padding-left:16px;color:#0b0b0b;text-align:right">${(p.data[4] as number * 100).toFixed(1)}%</td></tr>
+              <tr><td>Margin</td><td style="padding-left:16px;color:#0b0b0b;text-align:right">${(p.data[7] as number * 100).toFixed(1)}%</td></tr>
+            </table>`;
         },
       },
-      legend: {
-        bottom: 10,
-        type: "scroll" as const,
-        textStyle: { fontSize: 11 },
-      },
-      grid: { left: 20, right: 20, top: 20, bottom: 60 },
+      grid: { left: 8, right: 8, top: 8, bottom: 48 },
       xAxis: {
         type: "value" as const,
         show: false,
-        min: (v: { min: number }) => v.min - 50,
-        max: (v: { max: number }) => v.max + 50,
+        min: (v: { min: number }) => v.min - 100,
+        max: (v: { max: number }) => v.max + 100,
       },
       yAxis: {
         type: "value" as const,
         show: false,
-        min: (v: { min: number }) => v.min - 50,
-        max: (v: { max: number }) => v.max + 50,
+        min: (v: { min: number }) => v.min - 100,
+        max: (v: { max: number }) => v.max + 100,
       },
       dataZoom: [
         { type: "inside" as const },
-        { type: "slider" as const, bottom: 40 },
+        {
+          type: "slider" as const,
+          bottom: 8,
+          height: 20,
+          borderColor: "transparent",
+          backgroundColor: "rgba(11,11,11,0.04)",
+          fillerColor: "rgba(11,11,11,0.10)",
+          handleStyle: { color: "#52514e", borderColor: "#52514e" },
+          textStyle: { color: "#898781", fontSize: 10 },
+        },
       ],
       series,
     };
-  }, [groupedCells, colorMap]);
+  }, [groupedCells]);
 
-  // ECharts 初始化与更新
+  // ECharts 初始化
   useEffect(() => {
     if (!chartRef.current || Object.keys(groupedCells).length === 0) return;
 
@@ -109,7 +172,6 @@ export default function ResultPage() {
       chartInstance.current = echarts.init(chartRef.current);
     }
 
-    // 绑定悬停事件
     chartInstance.current.off("mouseover");
     chartInstance.current.off("mouseout");
     chartInstance.current.on("mouseover", (params: unknown) => {
@@ -130,17 +192,13 @@ export default function ResultPage() {
     });
     chartInstance.current.on("mouseout", () => setHoveredCell(null));
 
-    chartInstance.current.setOption(option);
+    chartInstance.current.setOption(option, true);
 
     const handleResize = () => chartInstance.current?.resize();
     window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
+    return () => window.removeEventListener("resize", handleResize);
   }, [groupedCells, option]);
 
-  // 清理图表实例
   useEffect(() => {
     return () => {
       chartInstance.current?.dispose();
@@ -149,113 +207,134 @@ export default function ResultPage() {
   }, []);
 
   if (loading) {
-    return <div className="loading">加载中...</div>;
+    return (
+      <div className="loading-state">
+        <div className="spinner" />
+        <p>加载数据中…</p>
+      </div>
+    );
   }
 
   if (error) {
     return (
-      <div className="error-page">
-        <p>❌ {error}</p>
-        <button onClick={() => navigate("/")}>返回上传页</button>
+      <div className="error-state">
+        <p>{error}</p>
+        <button className="btn-ghost" onClick={() => navigate("/")}>
+          返回上传
+        </button>
       </div>
     );
   }
 
   return (
     <div className="result-page">
-      {/* 顶部栏 */}
-      <header className="result-header">
-        <button className="btn-back" onClick={() => navigate("/")}>← 返回</button>
-        <h1>📊 {name}</h1>
-        <span className="cell-count">{cellCount.toLocaleString()} 个细胞</span>
-        <button className="btn-modify" disabled title="功能开发中">
-          ✏️ 修改注释
+      <header className="result-topbar">
+        <button className="btn-ghost" onClick={() => navigate("/")}>
+          ← 返回
+        </button>
+        <div className="topbar-info">
+          <h1>{name}</h1>
+          <span className="badge">{cellCount.toLocaleString()} cells</span>
+        </div>
+        <div className="topbar-spacer" />
+        <button className="btn-disabled" disabled title="功能开发中">
+          修改注释
         </button>
       </header>
 
       <div className="result-body">
-        {/* 左侧：散点图 */}
         <div className="chart-area" ref={chartRef} />
 
-        {/* 右侧：信息面板 */}
-        <aside className="info-panel">
-          {/* 数据集概览 */}
-          <section className="panel-section">
-            <h3>📋 数据集概览</h3>
-            <div className="stat-row">
-              <span>文件名</span>
-              <span className="stat-value">{name}</span>
+        <aside className="side-panel">
+          <section className="panel-block">
+            <h3 className="panel-label">数据集</h3>
+            <div className="kv-row">
+              <span className="kv-key">文件</span>
+              <span className="kv-val">{name}</span>
             </div>
-            <div className="stat-row">
-              <span>总细胞数</span>
-              <span className="stat-value">{cellCount.toLocaleString()}</span>
+            <div className="kv-row">
+              <span className="kv-key">细胞</span>
+              <span className="kv-val">{cellCount.toLocaleString()}</span>
             </div>
-            <div className="stat-row">
-              <span>细胞类型</span>
-              <span className="stat-value">{cellTypes.length} 种</span>
+            <div className="kv-row">
+              <span className="kv-key">类型</span>
+              <span className="kv-val">{cellTypes.length}</span>
             </div>
           </section>
 
-          {/* 图例 */}
-          <section className="panel-section">
-            <h3>🎨 细胞类型</h3>
+          <section className="panel-block">
+            <h3 className="panel-label">细胞类型</h3>
             <ul className="legend-list">
               {cellTypes.map((t) => (
                 <li key={t.name}>
-                  <span className="legend-dot" style={{ background: t.color }} />
+                  <span
+                    className="legend-swatch"
+                    style={{ background: t.color }}
+                  />
                   <span className="legend-name">{t.name}</span>
-                  <span className="legend-count">{t.count.toLocaleString()}</span>
-                  <span className="legend-pct">
-                    {((t.count / cellCount) * 100).toFixed(1)}%
+                  <span className="legend-meta">
+                    {t.count.toLocaleString()}
+                    <span className="legend-pct">
+                      {" "}
+                      · {((t.count / cellCount) * 100).toFixed(1)}%
+                    </span>
                   </span>
                 </li>
               ))}
             </ul>
           </section>
 
-          {/* 选中细胞详情 */}
-          <section className="panel-section">
-            <h3>🔍 选中细胞</h3>
+          <section className="panel-block">
+            <h3 className="panel-label">选中细胞</h3>
             {hoveredCell ? (
-              <div className="cell-detail">
-                <div className="detail-row">
-                  <span>Cell ID</span>
-                  <span>{hoveredCell.cell_id}</span>
+              <div className="cell-card">
+                <div className="kv-row">
+                  <span className="kv-key">ID</span>
+                  <span className="kv-val">{hoveredCell.cell_id}</span>
                 </div>
-                <div className="detail-row">
-                  <span>AI 预测</span>
-                  <span className="label-tag">{hoveredCell.full_label}</span>
+                <div className="kv-row">
+                  <span className="kv-key">预测类型</span>
+                  <span className="kv-val pill">
+                    {hoveredCell.full_label}
+                  </span>
                 </div>
-                <div className="detail-row">
-                  <span>置信度</span>
-                  <span>{(hoveredCell.prob * 100).toFixed(1)}%</span>
+                <div className="kv-row">
+                  <span className="kv-key">置信度</span>
+                  <span className="kv-val">
+                    {(hoveredCell.prob * 100).toFixed(1)}%
+                  </span>
                 </div>
-                <div className="detail-row">
-                  <span>坐标</span>
-                  <span>
+                <div className="kv-row">
+                  <span className="kv-key">坐标</span>
+                  <span className="kv-val mono">
                     {hoveredCell.x.toFixed(0)}, {hoveredCell.y.toFixed(0)}
                   </span>
                 </div>
-                <div className="detail-row">
-                  <span>Top2 候选</span>
-                  <span>{hoveredCell.top2_label}</span>
+                <div className="kv-row">
+                  <span className="kv-key">Top-2 候选</span>
+                  <span className="kv-val">{hoveredCell.top2_label}</span>
                 </div>
-                <div className="detail-row">
-                  <span>置信度间隔</span>
-                  <span>{(hoveredCell.margin * 100).toFixed(1)}%</span>
+                <div className="kv-row">
+                  <span className="kv-key">间隔</span>
+                  <span className="kv-val">
+                    {(hoveredCell.margin * 100).toFixed(1)}%
+                  </span>
                 </div>
               </div>
             ) : (
-              <p className="hint-text">鼠标悬停散点图中的细胞点查看详情</p>
+              <p className="panel-hint">
+                鼠标悬停散点图中的细胞点
+                <br />
+                查看详细信息
+              </p>
             )}
           </section>
 
-          {/* 操作区 */}
-          <section className="panel-section">
-            <button className="btn-modify-full" disabled title="功能开发中">
-              ✏️ 修改注释
+          <section className="panel-block">
+            <button className="btn-disabled btn-block" disabled>
+              修改注释
             </button>
-            <p className="hint-text">此功能将在后续版本中开放</p>
+            <p className="panel-hint">功能开发中</p>
           </section>
         </aside>
       </div>
