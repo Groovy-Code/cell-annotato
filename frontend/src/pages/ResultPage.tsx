@@ -90,11 +90,19 @@ export default function ResultPage() {
     const series: Record<string, unknown>[] = Object.entries(groupedCells).map(([label, cells]) => ({
       name: label,
       type: "scatter",
-      large: true,
-      largeThreshold: 500,
       data: cells.map((c) => [c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]),
-      symbolSize: 5,
+      symbolSize: 6,
       itemStyle: { color: colorMap[label] ?? "#a0a0a0", opacity: 0.85 },
+      emphasis: {
+        scale: 2.5,
+        focus: "self" as const,
+        itemStyle: { borderColor: "#0b0b0b", borderWidth: 1.5, opacity: 1 },
+      },
+      selectMode: "multiple" as const,
+      select: {
+        itemStyle: { borderColor: "#0b0b0b", borderWidth: 2.5, opacity: 1 },
+        scale: 1.6,
+      },
     }));
 
     const legendData = Object.keys(groupedCells).map((name) => ({
@@ -140,96 +148,28 @@ export default function ResultPage() {
     };
   }, [groupedCells, colorMap, bounds, selectMode]);
 
-  // 独立更新高亮图层（不触发主 series 重绘）
-  useEffect(() => {
-    const chart = chartInstance.current;
-    if (!chart || Object.keys(groupedCells).length === 0) return;
-
-    // 找到当前主 series 数量
-    const mainSeriesCount = Object.keys(groupedCells).length;
-
-    // 构建高亮 series 列表
-    const selData: Record<string, (number | string)[][]> = {};
-    for (const c of selectedCells) {
-      if (!selData[c.label]) selData[c.label] = [];
-      selData[c.label].push([c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]);
-    }
-
-    const newHighlightSeries: Record<string, unknown>[] = [];
-    for (const [label, data] of Object.entries(selData)) {
-      newHighlightSeries.push({
-        name: `» ${label}`,
-        type: "scatter",
-        data,
-        symbolSize: 11,
-        z: 10,
-        itemStyle: { color: colorMap[label] ?? "#a0a0a0", borderColor: "#0b0b0b", borderWidth: 2.5, opacity: 1 },
-      });
-    }
-
-    // 获取当前 total series 数，移除旧的高亮图层
-    const opt = chart.getOption() as { series?: unknown[] };
-    const currentCount = (opt.series ?? []).length;
-    const oldHighlightCount = currentCount - mainSeriesCount;
-    if (oldHighlightCount > 0) {
-      // 逐个移除高亮 series (从后往前)
-      for (let i = 0; i < oldHighlightCount; i++) {
-        chart.dispatchAction({ type: "downplay", seriesIndex: mainSeriesCount + i });
-      }
-    }
-
-    // 合并高亮 series：保持主 series 不动，追加新的
-    chart.setOption(
-      { series: [...Array(mainSeriesCount).fill(undefined), ...newHighlightSeries] },
-      false, // notMerge = false, 只合并 series
-    );
-  }, [selectedCells, groupedCells, colorMap]);
-
   // ECharts 初始化 + 事件
   useEffect(() => {
     if (!chartRef.current || Object.keys(groupedCells).length === 0) return;
     if (!chartInstance.current) chartInstance.current = echarts.init(chartRef.current);
     const chart = chartInstance.current;
 
-    chart.off("click"); chart.off("brushSelected"); chart.off("mouseover"); chart.off("mouseout");
+    chart.off("selectchanged"); chart.off("brushSelected"); chart.off("mouseover"); chart.off("mouseout");
 
-    // 点击选中/取消
-    chart.on("click", (params: unknown) => {
-      const p = params as { data: number[] };
-      if (!p.data?.length) return;
-      const cellId = p.data[2] as number;
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.has(cellId) ? next.delete(cellId) : next.add(cellId);
-        return next;
-      });
-    });
-
-    // 框选：基于坐标范围过滤
-    chart.on("brushSelected", (params: unknown) => {
-      const p = params as { batch?: { areas?: { coordRange?: number[][] }[] }[] };
-      if (!p.batch?.length) return;
+    // 选中变化事件（点击选中/取消 + 框选选中 都走这里）
+    chart.on("selectchanged", () => {
+      const opt = chart.getOption() as { series?: { name?: string; selectedMap?: Record<number, boolean>; data?: (number | string)[][] }[] };
       const newIds = new Set<number>();
-      for (const b of p.batch) {
-        for (const area of b.areas ?? []) {
-          const range = area.coordRange; // [[xMin, yMin], [xMax, yMax]] (数据坐标)
-          if (!range || range.length < 2) continue;
-          const [rxMin, ryMin] = range[0];
-          const [rxMax, ryMax] = range[1];
-          for (const cell of _allCellsCache) {
-            if (cell.x >= rxMin && cell.x <= rxMax && cell.y >= ryMin && cell.y <= ryMax) {
-              newIds.add(cell.cell_id);
+      (opt.series ?? []).forEach((s) => {
+        if (s.selectedMap) {
+          Object.entries(s.selectedMap).forEach(([dataIdx, isSel]) => {
+            if (isSel && s.data?.[Number(dataIdx)]?.[2] !== undefined) {
+              newIds.add(s.data[Number(dataIdx)][2] as number);
             }
-          }
+          });
         }
-      }
-      if (newIds.size > 0) {
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          newIds.forEach((id) => next.add(id));
-          return next;
-        });
-      }
+      });
+      setSelectedIds(newIds);
     });
 
     // 鼠标悬停
@@ -254,13 +194,6 @@ export default function ResultPage() {
     const onResize = () => chart.resize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [mainOption]);
-
-  // 高亮图层跟随 mainOption 更新后重新挂载
-  useEffect(() => {
-    if (!chartInstance.current || !chartReady.current) return;
-    // mainOption 变化后，强制重建高亮图层
-    setSelectedIds((prev) => new Set(prev));
   }, [mainOption]);
 
   useEffect(() => {
