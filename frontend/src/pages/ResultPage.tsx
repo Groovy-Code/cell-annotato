@@ -90,19 +90,11 @@ export default function ResultPage() {
     const series: Record<string, unknown>[] = Object.entries(groupedCells).map(([label, cells]) => ({
       name: label,
       type: "scatter",
+      large: true,
+      largeThreshold: 500,
       data: cells.map((c) => [c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]),
-      symbolSize: 6,
+      symbolSize: 4,
       itemStyle: { color: colorMap[label] ?? "#a0a0a0", opacity: 0.85 },
-      emphasis: {
-        scale: 2.5,
-        focus: "self" as const,
-        itemStyle: { borderColor: "#0b0b0b", borderWidth: 1.5, opacity: 1 },
-      },
-      selectMode: "multiple" as const,
-      select: {
-        itemStyle: { borderColor: "#0b0b0b", borderWidth: 2.5, opacity: 1 },
-        scale: 1.6,
-      },
     }));
 
     const legendData = Object.keys(groupedCells).map((name) => ({
@@ -131,11 +123,11 @@ export default function ResultPage() {
       brush: selectMode === "box" ? {
         toolbox: ["rect", "clear"],
         brushType: "rect",
-        brushMode: "multiple",
-        transformable: true,
+        brushMode: "single",
         throttleType: "debounce",
         throttleDelay: 300,
         brushStyle: { borderWidth: 1.5, color: "rgba(42,120,214,0.15)", borderColor: "#2a78d6" },
+        outOfBrush: { colorAlpha: 0.4 },
       } : undefined,
       grid: { left: 8, right: 8, top: 8, bottom: 60 },
       xAxis: { type: "value" as const, show: false, min: bounds.xMin, max: bounds.xMax },
@@ -154,22 +146,45 @@ export default function ResultPage() {
     if (!chartInstance.current) chartInstance.current = echarts.init(chartRef.current);
     const chart = chartInstance.current;
 
-    chart.off("selectchanged"); chart.off("brushSelected"); chart.off("mouseover"); chart.off("mouseout");
+    chart.off("click"); chart.off("brushSelected"); chart.off("mouseover"); chart.off("mouseout");
 
-    // 选中变化事件（点击选中/取消 + 框选选中 都走这里）
-    chart.on("selectchanged", () => {
-      const opt = chart.getOption() as { series?: { name?: string; selectedMap?: Record<number, boolean>; data?: (number | string)[][] }[] };
-      const newIds = new Set<number>();
-      (opt.series ?? []).forEach((s) => {
-        if (s.selectedMap) {
-          Object.entries(s.selectedMap).forEach(([dataIdx, isSel]) => {
-            if (isSel && s.data?.[Number(dataIdx)]?.[2] !== undefined) {
-              newIds.add(s.data[Number(dataIdx)][2] as number);
-            }
-          });
-        }
+    // 手动点击选中/取消
+    chart.on("click", (params: unknown) => {
+      const p = params as { data?: number[] };
+      if (!p?.data?.length) return;
+      const cellId = p.data[2] as number;
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.has(cellId) ? next.delete(cellId) : next.add(cellId);
+        return next;
       });
-      setSelectedIds(newIds);
+    });
+
+    // 框选：坐标范围过滤 (large 模式下 dataIndex 不可靠)
+    chart.on("brushSelected", (params: unknown) => {
+      const p = params as { batch?: { areas?: { coordRange?: number[][] }[] }[] };
+      if (!p.batch?.length) return;
+      const newIds = new Set<number>();
+      for (const b of p.batch) {
+        for (const area of b.areas ?? []) {
+          const range = area.coordRange;
+          if (!range || range.length < 2) continue;
+          const [rxMin, ryMin] = range[0];
+          const [rxMax, ryMax] = range[1];
+          for (const cell of _allCellsCache) {
+            if (cell.x >= rxMin && cell.x <= rxMax && cell.y >= ryMin && cell.y <= ryMax) {
+              newIds.add(cell.cell_id);
+            }
+          }
+        }
+      }
+      if (newIds.size > 0) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          newIds.forEach((id) => next.add(id));
+          return next;
+        });
+      }
     });
 
     // 鼠标悬停
