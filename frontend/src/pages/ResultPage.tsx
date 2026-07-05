@@ -26,6 +26,7 @@ export default function ResultPage() {
   const [hoveredCell, setHoveredCell] = useState<Cell | null>(null);
   const [groupedCells, setGroupedCells] = useState<Record<string, Cell[]>>({});
   const [colorMap, setColorMap] = useState<Record<string, string>>({});
+  const [bounds, setBounds] = useState({ xMin: 0, xMax: 0, yMin: 0, yMax: 0 });
 
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
@@ -63,6 +64,19 @@ export default function ResultPage() {
         setCellTypes(types);
         setGroupedCells(groups);
         setColorMap(colorMap);
+
+        // 计算数据边界（加 2% padding）
+        const allCells = data.cells;
+        let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
+        for (const c of allCells) {
+          if (c.x < xMin) xMin = c.x;
+          if (c.x > xMax) xMax = c.x;
+          if (c.y < yMin) yMin = c.y;
+          if (c.y > yMax) yMax = c.y;
+        }
+        const px = (xMax - xMin) * 0.02 || 1;
+        const py = (yMax - yMin) * 0.02 || 1;
+        setBounds({ xMin: xMin - px, xMax: xMax + px, yMin: yMin - py, yMax: yMax + py });
         setLoading(false);
       })
       .catch((e) => {
@@ -159,21 +173,18 @@ export default function ResultPage() {
       xAxis: {
         type: "value" as const,
         show: false,
-        min: (v: { min: number }) => v.min - 100,
-        max: (v: { max: number }) => v.max + 100,
+        min: bounds.xMin,
+        max: bounds.xMax,
       },
       yAxis: {
         type: "value" as const,
         show: false,
-        min: (v: { min: number }) => v.min - 100,
-        max: (v: { max: number }) => v.max + 100,
+        min: bounds.yMin,
+        max: bounds.yMax,
       },
       dataZoom: [
-        { type: "inside" as const, minZoom: 1, maxZoom: 50 },
         {
           type: "slider" as const,
-          minZoom: 1,
-          maxZoom: 50,
           bottom: 36,
           height: 20,
           borderColor: "transparent",
@@ -185,7 +196,7 @@ export default function ResultPage() {
       ],
       series,
     };
-  }, [groupedCells, colorMap]);
+  }, [groupedCells, colorMap, bounds]);
 
   // ECharts 初始化
   useEffect(() => {
