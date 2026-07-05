@@ -90,15 +90,31 @@ export default function ResultPage() {
     const series: Record<string, unknown>[] = Object.entries(groupedCells).map(([label, cells]) => ({
       name: label,
       type: "scatter",
-      progressive: 400,
+      large: true,
+      largeThreshold: 500,
       data: cells.map((c) => [c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]),
       symbolSize: 4,
       itemStyle: { color: colorMap[label] ?? "#a0a0a0", opacity: 0.85 },
-      emphasis: {
-        scale: 2,
-        itemStyle: { borderColor: "#0b0b0b", borderWidth: 2.5, opacity: 1 },
-      },
     }));
+
+    // 选中高亮图层 — 单独的 series，不用 large 模式
+    if (selectedCells.length > 0) {
+      const selByLabel: Record<string, (number | string)[][]> = {};
+      for (const c of selectedCells) {
+        if (!selByLabel[c.label]) selByLabel[c.label] = [];
+        selByLabel[c.label].push([c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]);
+      }
+      for (const [label, data] of Object.entries(selByLabel)) {
+        series.push({
+          name: `» ${label}`,
+          type: "scatter",
+          data,
+          symbolSize: 10,
+          z: 10,
+          itemStyle: { color: colorMap[label] ?? "#a0a0a0", borderColor: "#0b0b0b", borderWidth: 2.5, opacity: 1 },
+        });
+      }
+    }
 
     const legendData = Object.keys(groupedCells).map((name) => ({
       name,
@@ -140,7 +156,7 @@ export default function ResultPage() {
       ],
       series,
     };
-  }, [groupedCells, colorMap, bounds, selectMode]);
+  }, [groupedCells, colorMap, bounds, selectMode, selectedCells]);
 
   // ECharts 初始化 + 事件
   useEffect(() => {
@@ -149,32 +165,38 @@ export default function ResultPage() {
     const chart = chartInstance.current;
 
     chart.off("click"); chart.off("brushSelected"); chart.off("mouseover"); chart.off("mouseout");
+    chart.getZr().off("click");
 
-    // 点击选中/取消 + 放大黑边高亮
-    chart.on("click", (params: unknown) => {
-      const p = params as { data?: number[]; seriesIndex?: number; dataIndex?: number };
-      if (!p.data?.length || p.seriesIndex == null || p.dataIndex == null) return;
-      const cellId = p.data[2] as number;
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(cellId)) {
-          next.delete(cellId);
-          chart.dispatchAction({ type: "downplay", seriesIndex: p.seriesIndex!, dataIndex: p.dataIndex! });
-        } else {
-          next.add(cellId);
-          chart.dispatchAction({ type: "highlight", seriesIndex: p.seriesIndex!, dataIndex: p.dataIndex! });
-        }
-        return next;
-      });
+    // 点击选中 — large 模式用 zrender 事件 + 坐标反查
+    chart.getZr().on("click", (e: unknown) => {
+      const evt = e as { offsetX?: number; offsetY?: number };
+      if (evt.offsetX == null || evt.offsetY == null) return;
+      const pt = chart.convertFromPixel({ gridIndex: 0 }, [evt.offsetX, evt.offsetY]);
+      const [dx, dy] = pt as number[];
+      let bestId = -1; let bestDist = Infinity;
+      const range = Math.max(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
+      const thresh = range * 0.01;
+      for (const cell of _allCellsCache) {
+        const d = Math.hypot(cell.x - dx, cell.y - dy);
+        if (d < bestDist) { bestDist = d; bestId = cell.cell_id; }
+      }
+      if (bestId >= 0 && bestDist < thresh) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          next.has(bestId) ? next.delete(bestId) : next.add(bestId);
+          return next;
+        });
+      }
     });
 
-    // 框选：坐标过滤 + 批量高亮
+    // 框选 — 坐标范围过滤
     chart.on("brushSelected", (params: unknown) => {
-      const p = params as { batch?: { areas?: { coordRange?: number[][] }[] }[] };
-      if (!p.batch?.length) return;
+      const p = params as { areas?: { coordRange?: number[][] }[]; batch?: { selected?: { dataIndex?: number[]; seriesIndex?: number }[] }[] };
       const newIds = new Set<number>();
-      for (const b of p.batch) {
-        for (const area of b.areas ?? []) {
+      // 方式 1: areas.coordRange (数据坐标)
+      const areas = p.areas ?? [];
+      if (areas.length > 0) {
+        for (const area of areas) {
           const range = area.coordRange;
           if (!range || range.length < 2) continue;
           const [rxMin, ryMin] = range[0];
@@ -186,19 +208,25 @@ export default function ResultPage() {
           }
         }
       }
+      // 方式 2: batch.selected.dataIndex
+      if (newIds.size === 0 && p.batch) {
+        for (const b of p.batch) {
+          for (const sel of b.selected ?? []) {
+            const si = sel.seriesIndex ?? 0;
+            const keys = Object.keys(groupedCells);
+            const name = keys[si];
+            const cells = name ? groupedCells[name] : [];
+            for (const di of sel.dataIndex ?? []) {
+              if (cells[di]) newIds.add(cells[di].cell_id);
+            }
+          }
+        }
+      }
       if (newIds.size > 0) {
         setSelectedIds((prev) => {
           const next = new Set(prev);
           newIds.forEach((id) => next.add(id));
           return next;
-        });
-        // 高亮框选到的所有细胞
-        Object.entries(groupedCells).forEach(([, cells], si) => {
-          cells.forEach((c, di) => {
-            if (newIds.has(c.cell_id)) {
-              chart.dispatchAction({ type: "highlight", seriesIndex: si, dataIndex: di });
-            }
-          });
         });
       }
     });
