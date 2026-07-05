@@ -90,9 +90,14 @@ export default function ResultPage() {
     const series: Record<string, unknown>[] = Object.entries(groupedCells).map(([label, cells]) => ({
       name: label,
       type: "scatter",
+      progressive: 400,
       data: cells.map((c) => [c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]),
       symbolSize: 4,
       itemStyle: { color: colorMap[label] ?? "#a0a0a0", opacity: 0.85 },
+      emphasis: {
+        scale: 2,
+        itemStyle: { borderColor: "#0b0b0b", borderWidth: 2.5, opacity: 1 },
+      },
     }));
 
     const legendData = Object.keys(groupedCells).map((name) => ({
@@ -145,19 +150,25 @@ export default function ResultPage() {
 
     chart.off("click"); chart.off("brushSelected"); chart.off("mouseover"); chart.off("mouseout");
 
-    // 点击选中/取消 (large:false 下 params.data 有效)
+    // 点击选中/取消 + 放大黑边高亮
     chart.on("click", (params: unknown) => {
-      const p = params as { data?: number[] };
-      if (!p.data?.length) return;
+      const p = params as { data?: number[]; seriesIndex?: number; dataIndex?: number };
+      if (!p.data?.length || p.seriesIndex == null || p.dataIndex == null) return;
       const cellId = p.data[2] as number;
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        next.has(cellId) ? next.delete(cellId) : next.add(cellId);
+        if (next.has(cellId)) {
+          next.delete(cellId);
+          chart.dispatchAction({ type: "downplay", seriesIndex: p.seriesIndex!, dataIndex: p.dataIndex! });
+        } else {
+          next.add(cellId);
+          chart.dispatchAction({ type: "highlight", seriesIndex: p.seriesIndex!, dataIndex: p.dataIndex! });
+        }
         return next;
       });
     });
 
-    // 框选：坐标范围过滤 (large 模式下 dataIndex 不可靠)
+    // 框选：坐标过滤 + 批量高亮
     chart.on("brushSelected", (params: unknown) => {
       const p = params as { batch?: { areas?: { coordRange?: number[][] }[] }[] };
       if (!p.batch?.length) return;
@@ -180,6 +191,14 @@ export default function ResultPage() {
           const next = new Set(prev);
           newIds.forEach((id) => next.add(id));
           return next;
+        });
+        // 高亮框选到的所有细胞
+        Object.entries(groupedCells).forEach(([, cells], si) => {
+          cells.forEach((c, di) => {
+            if (newIds.has(c.cell_id)) {
+              chart.dispatchAction({ type: "highlight", seriesIndex: si, dataIndex: di });
+            }
+          });
         });
       }
     });
