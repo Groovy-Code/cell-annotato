@@ -325,6 +325,33 @@ body {
   flex: 1;
 }
 
+.topbar-tools {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-tool {
+  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-tool:hover {
+  background: var(--surface-3);
+}
+
+.btn-tool.active {
+  background: #eef3fd;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+
 .result-body {
   flex: 1;
   display: flex;
@@ -491,4 +518,20 @@ body {
   gap: var(--space-md);
   font-size: 14px;
   color: #b91c1c;
+}
+
+/* Selected cells in side panel */
+.selected-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.selected-row:hover {
+  background: #fef2f2;
 }
