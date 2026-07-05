@@ -29,6 +29,7 @@ export default function ResultPage() {
 
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
+  const chartReady = useRef(false);
 
   useEffect(() => {
     if (!id) return;
@@ -76,6 +77,8 @@ export default function ResultPage() {
     const series = Object.entries(groupedCells).map(([label, cells]) => ({
       name: label,
       type: "scatter" as const,
+      large: true,
+      largeThreshold: 500,
       data: cells.map((c) => [
         c.x,
         c.y,
@@ -210,7 +213,9 @@ export default function ResultPage() {
     });
     chartInstance.current.on("mouseout", () => setHoveredCell(null));
 
-    chartInstance.current.setOption(option, true);
+    const isFirstRender = !chartReady.current;
+    chartInstance.current.setOption(option, isFirstRender);
+    chartReady.current = true;
 
     const handleResize = () => chartInstance.current?.resize();
     window.addEventListener("resize", handleResize);
@@ -221,6 +226,7 @@ export default function ResultPage() {
     return () => {
       chartInstance.current?.dispose();
       chartInstance.current = null;
+      chartReady.current = false;
     };
   }, []);
 
