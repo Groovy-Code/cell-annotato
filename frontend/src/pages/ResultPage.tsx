@@ -90,8 +90,6 @@ export default function ResultPage() {
     const series: Record<string, unknown>[] = Object.entries(groupedCells).map(([label, cells]) => ({
       name: label,
       type: "scatter",
-      large: true,
-      largeThreshold: 500,
       data: cells.map((c) => [c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]),
       symbolSize: 4,
       itemStyle: { color: colorMap[label] ?? "#a0a0a0", opacity: 0.85 },
@@ -127,7 +125,6 @@ export default function ResultPage() {
         throttleType: "debounce",
         throttleDelay: 300,
         brushStyle: { borderWidth: 1.5, color: "rgba(42,120,214,0.15)", borderColor: "#2a78d6" },
-        outOfBrush: { colorAlpha: 0.4 },
       } : undefined,
       grid: { left: 8, right: 8, top: 8, bottom: 60 },
       xAxis: { type: "value" as const, show: false, min: bounds.xMin, max: bounds.xMax },
@@ -148,31 +145,16 @@ export default function ResultPage() {
 
     chart.off("click"); chart.off("brushSelected"); chart.off("mouseover"); chart.off("mouseout");
 
-    // 手动点击选中 — large 模式不支持单点 click，用坐标反查最近细胞
+    // 点击选中/取消 (large:false 下 params.data 有效)
     chart.on("click", (params: unknown) => {
-      const p = params as { event?: { offsetX?: number; offsetY?: number }; componentType?: string };
-      // 只在点击散点区域时处理（排除 dataZoom/toolbox 等组件）
-      if (p.componentType !== "series" && p.componentType !== "grid" && p.componentType !== "yAxis" && p.componentType !== "xAxis") return;
-      const evt = p.event;
-      if (!evt || evt.offsetX == null || evt.offsetY == null) return;
-      const pt = chart.convertFromPixel({ gridIndex: 0 }, [evt.offsetX, evt.offsetY]);
-      const [dx, dy] = pt as number[];
-      let bestCell: Cell | null = null;
-      let bestDist = Infinity;
-      const range = Math.max(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
-      const threshold = range * 0.008;
-      for (const cell of _allCellsCache) {
-        const dist = Math.hypot(cell.x - dx, cell.y - dy);
-        if (dist < bestDist) { bestDist = dist; bestCell = cell; }
-      }
-      if (bestCell && bestDist < threshold) {
-        const cellId = bestCell.cell_id;
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
-          next.has(cellId) ? next.delete(cellId) : next.add(cellId);
-          return next;
-        });
-      }
+      const p = params as { data?: number[] };
+      if (!p.data?.length) return;
+      const cellId = p.data[2] as number;
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.has(cellId) ? next.delete(cellId) : next.add(cellId);
+        return next;
+      });
     });
 
     // 框选：坐标范围过滤 (large 模式下 dataIndex 不可靠)
