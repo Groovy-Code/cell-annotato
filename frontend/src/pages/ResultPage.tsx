@@ -169,9 +169,11 @@ export default function ResultPage() {
         max: (v: { max: number }) => v.max + 100,
       },
       dataZoom: [
-        { type: "inside" as const },
+        { type: "inside" as const, minZoom: 1, maxZoom: 50 },
         {
           type: "slider" as const,
+          minZoom: 1,
+          maxZoom: 50,
           bottom: 36,
           height: 20,
           borderColor: "transparent",
