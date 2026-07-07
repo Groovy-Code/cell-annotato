@@ -69,6 +69,11 @@ def parse_h5ad(file_path: Path) -> dict:
         # 空间坐标
         coords = f["obsm"]["spatial"][:]  # shape: (n_cells, 2)
 
+        # UMAP 坐标 (可选)
+        umap_coords = None
+        if "X_umap" in f["obsm"]:
+            umap_coords = f["obsm"]["X_umap"][:]
+
     n_cells = len(cell_ids)
 
     # 细胞类型统计（按第一级分类计数）
@@ -89,7 +94,7 @@ def parse_h5ad(file_path: Path) -> dict:
     # 构建细胞列表
     cells = []
     for i in range(n_cells):
-        cells.append({
+        cell = {
             "cell_id": int(cell_ids[i]),
             "x": float(coords[i, 0]),
             "y": float(coords[i, 1]),
@@ -99,7 +104,11 @@ def parse_h5ad(file_path: Path) -> dict:
             "top2_label": str(top2_labels[i]),
             "top2_prob": round(float(top2_probs[i]), 4),
             "margin": round(float(margins[i]), 4),
-        })
+        }
+        if umap_coords is not None:
+            cell["umap_x"] = float(umap_coords[i, 0])
+            cell["umap_y"] = float(umap_coords[i, 1])
+        cells.append(cell)
 
     dataset_id = str(uuid.uuid4())
     name = file_path.stem
@@ -122,10 +131,13 @@ def run_mock_scbert(original_filename: str) -> dict:
         输入: xxx.h5ad  →  输出: xxx_predict.h5ad
     """
     stem = Path(original_filename).stem
-    paired_name = f"{stem}_predict.h5ad"
-    paired_path = PAIRED_H5AD_DIR / paired_name
-
-    if not paired_path.exists():
+    # 优先使用带 UMAP 的版本
+    for suffix in ["_predict_umap.h5ad", "_predict.h5ad"]:
+        paired_name = f"{stem}{suffix}"
+        paired_path = PAIRED_H5AD_DIR / paired_name
+        if paired_path.exists():
+            break
+    else:
         raise FileNotFoundError(
             f"未找到配对的预测文件: {paired_path}\n"
             f"请确认 '{PAIRED_H5AD_DIR}' 目录下存在 '{paired_name}'"

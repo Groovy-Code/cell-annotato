@@ -27,8 +27,11 @@ export default function ResultPage() {
   const [groupedCells, setGroupedCells] = useState<Record<string, Cell[]>>({});
   const [colorMap, setColorMap] = useState<Record<string, string>>({});
   const [bounds, setBounds] = useState({ xMin: 0, xMax: 0, yMin: 0, yMax: 0 });
+  const [umapBounds, setUmapBounds] = useState({ xMin: 0, xMax: 0, yMin: 0, yMax: 0 });
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectMode, setSelectMode] = useState<"click" | "box">("click");
+  const [viewMode, setViewMode] = useState<"spatial" | "umap">("spatial");
+  const [hasUmap, setHasUmap] = useState(false);
 
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstance = useRef<echarts.ECharts | null>(null);
@@ -63,6 +66,21 @@ export default function ResultPage() {
       setGroupedCells(groups);
       setColorMap(cmap);
 
+      // 检测 UMAP 并计算其边界
+      if (data.cells.length > 0 && data.cells[0].umap_x != null) {
+        setHasUmap(true);
+        let uxMin = Infinity, uxMax = -Infinity, uyMin = Infinity, uyMax = -Infinity;
+        for (const c of data.cells) {
+          if (c.umap_x! < uxMin) uxMin = c.umap_x!;
+          if (c.umap_x! > uxMax) uxMax = c.umap_x!;
+          if (c.umap_y! < uyMin) uyMin = c.umap_y!;
+          if (c.umap_y! > uyMax) uyMax = c.umap_y!;
+        }
+        const upx = (uxMax - uxMin) * 0.02 || 1;
+        const upy = (uyMax - uyMin) * 0.02 || 1;
+        setUmapBounds({ xMin: uxMin - upx, xMax: uxMax + upx, yMin: uyMin - upy, yMax: uyMax + upy });
+      }
+
       let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
       for (const c of data.cells) {
         if (c.x < xMin) xMin = c.x; if (c.x > xMax) xMax = c.x;
@@ -92,7 +110,11 @@ export default function ResultPage() {
       type: "scatter",
       large: true,
       largeThreshold: 500,
-      data: cells.map((c) => [c.x, c.y, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin]),
+      data: cells.map((c) => {
+        const cx = viewMode === "umap" && c.umap_x != null ? c.umap_x : c.x;
+        const cy = viewMode === "umap" && c.umap_y != null ? c.umap_y : c.y;
+        return [cx, cy, c.cell_id, c.full_label, c.prob, c.top2_label, c.top2_prob, c.margin];
+      }),
       symbolSize: 4,
       itemStyle: { color: colorMap[label] ?? "#a0a0a0", opacity: 0.85 },
     }));
@@ -148,15 +170,15 @@ export default function ResultPage() {
         brushStyle: { borderWidth: 1.5, color: "rgba(42,120,214,0.15)", borderColor: "#2a78d6" },
       } : undefined,
       grid: { left: 8, right: 8, top: 8, bottom: 60 },
-      xAxis: { type: "value" as const, show: false, min: bounds.xMin, max: bounds.xMax },
-      yAxis: { type: "value" as const, show: false, min: bounds.yMin, max: bounds.yMax },
+      xAxis: { type: "value" as const, show: false, min: (viewMode === "umap" ? umapBounds : bounds).xMin, max: (viewMode === "umap" ? umapBounds : bounds).xMax },
+      yAxis: { type: "value" as const, show: false, min: (viewMode === "umap" ? umapBounds : bounds).yMin, max: (viewMode === "umap" ? umapBounds : bounds).yMax },
       dataZoom: [
         { type: "inside" as const, zoomOnMouseWheel: true },
         { type: "slider" as const, bottom: 36, height: 20, borderColor: "transparent", backgroundColor: "rgba(11,11,11,0.04)", fillerColor: "rgba(11,11,11,0.10)", handleStyle: { color: "#52514e", borderColor: "#52514e" }, textStyle: { color: "#898781", fontSize: 10 } },
       ],
       series,
     };
-  }, [groupedCells, colorMap, bounds, selectMode, selectedCells]);
+  }, [groupedCells, colorMap, bounds, umapBounds, selectMode, selectedCells, viewMode]);
 
   // ECharts 初始化 + 事件
   useEffect(() => {
@@ -174,10 +196,15 @@ export default function ResultPage() {
       const pt = chart.convertFromPixel({ gridIndex: 0 }, [evt.offsetX, evt.offsetY]);
       const [dx, dy] = pt as number[];
       let bestId = -1; let bestDist = Infinity;
-      const range = Math.max(bounds.xMax - bounds.xMin, bounds.yMax - bounds.yMin);
+      const range = Math.max(
+        (viewMode === "umap" ? umapBounds : bounds).xMax - (viewMode === "umap" ? umapBounds : bounds).xMin,
+        (viewMode === "umap" ? umapBounds : bounds).yMax - (viewMode === "umap" ? umapBounds : bounds).yMin
+      );
       const thresh = range * 0.01;
       for (const cell of _allCellsCache) {
-        const d = Math.hypot(cell.x - dx, cell.y - dy);
+        const cx = viewMode === "umap" && cell.umap_x != null ? cell.umap_x : cell.x;
+        const cy = viewMode === "umap" && cell.umap_y != null ? cell.umap_y : cell.y;
+        const d = Math.hypot(cx - dx, cy - dy);
         if (d < bestDist) { bestDist = d; bestId = cell.cell_id; }
       }
       if (bestId >= 0 && bestDist < thresh) {
@@ -202,7 +229,9 @@ export default function ResultPage() {
           const [rxMin, ryMin] = range[0];
           const [rxMax, ryMax] = range[1];
           for (const cell of _allCellsCache) {
-            if (cell.x >= rxMin && cell.x <= rxMax && cell.y >= ryMin && cell.y <= ryMax) {
+            const cx = viewMode === "umap" && cell.umap_x != null ? cell.umap_x : cell.x;
+            const cy = viewMode === "umap" && cell.umap_y != null ? cell.umap_y : cell.y;
+            if (cx >= rxMin && cx <= rxMax && cy >= ryMin && cy <= ryMax) {
               newIds.add(cell.cell_id);
             }
           }
@@ -267,6 +296,12 @@ export default function ResultPage() {
       <header className="result-topbar">
         <button className="btn-ghost" onClick={() => navigate("/")}>← 返回</button>
         <div className="topbar-info"><h1>{name}</h1><span className="badge">{cellCount.toLocaleString()} cells</span></div>
+        {hasUmap && (
+          <div className="topbar-tools">
+            <button className={`btn-tool ${viewMode === "spatial" ? "active" : ""}`} onClick={() => setViewMode("spatial")}>🔬 空间</button>
+            <button className={`btn-tool ${viewMode === "umap" ? "active" : ""}`} onClick={() => setViewMode("umap")}>🧬 UMAP</button>
+          </div>
+        )}
         <div className="topbar-tools">
           <button className={`btn-tool ${selectMode === "click" ? "active" : ""}`} onClick={() => setSelectMode("click")}>👆 点选</button>
           <button className={`btn-tool ${selectMode === "box" ? "active" : ""}`} onClick={() => setSelectMode("box")}>⬜ 框选</button>

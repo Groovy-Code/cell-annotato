@@ -10,6 +10,8 @@ export interface Cell {
   cell_id: number;
   x: number;
   y: number;
+  umap_x?: number;
+  umap_y?: number;
   label: string;
   full_label: string;
   prob: number;
