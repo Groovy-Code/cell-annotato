@@ -19,10 +19,13 @@ def _extract_first_level(label: str) -> str:
     """从层级标签中提取第一级分类名。
 
     例: "Monocytes / Monocyte-derived cells/Macrophages" → "Monocytes"
+        "B cells/B" → "B cells"
     """
     if not isinstance(label, str):
         return str(label)
-    return label.split(" / ")[0].strip()
+    # 统一分隔符：处理 " / " 和 "/" 的混合情况
+    normalized = label.replace(" / ", "/")
+    return normalized.split("/")[0].strip()
 
 
 def _read_obs_column(obs_group: h5py.Group, col_name: str) -> np.ndarray:
